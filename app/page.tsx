@@ -1,16 +1,100 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getUsageCount, incrementUsage, isPro, setPro } from '@/lib/usage'
+import {
+  getUsageCount,
+  incrementUsage,
+  canGenerate,
+  getPlan,
+  getCredits,
+  getMonthlyExpiry,
+  isMonthlyActive,
+  setStarterPlan,
+  setMonthlyPlan,
+  setLifetimePlan,
+  type Plan,
+} from '@/lib/usage'
 import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js'
 
 const FREE_LIMIT = 3
+
 const DOC_TYPES = [
   { value: 'jsdoc', label: 'JSDoc' },
   { value: 'tsdoc', label: 'TSDoc' },
   { value: 'readme', label: 'README section' },
   { value: 'api', label: 'API reference' },
 ]
+
+const PRICING_TIERS = [
+  {
+    key: 'starter' as const,
+    name: 'Starter',
+    price: '$29',
+    period: 'per project',
+    amount: '29.00',
+    description: '100 generations — great for a single project',
+    features: ['100 AI doc generations', 'JSDoc, TSDoc, README & API', 'Copy & .md download'],
+    recommended: false,
+    badge: null,
+  },
+  {
+    key: 'lifetime' as const,
+    name: 'Lifetime',
+    price: '$49',
+    period: 'one-time',
+    amount: '49.00',
+    description: 'Unlimited forever — best value',
+    features: ['Unlimited AI generations', 'JSDoc, TSDoc, README & API', 'Copy & .md download', 'All future features'],
+    recommended: true,
+    badge: '⚡ Best Value',
+  },
+  {
+    key: 'monthly' as const,
+    name: 'Pro Monthly',
+    price: '$19',
+    period: 'per month',
+    amount: '19.00',
+    description: 'Unlimited for 30 days',
+    features: ['Unlimited AI generations (30 days)', 'JSDoc, TSDoc, README & API', 'Copy & .md download'],
+    recommended: false,
+    badge: null,
+  },
+]
+
+function PlanBadge({ plan, usageCount, credits }: { plan: Plan; usageCount: number; credits: number }) {
+  if (plan === 'lifetime') {
+    return (
+      <span className="text-xs bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1">
+        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block" />
+        Lifetime — Unlimited
+      </span>
+    )
+  }
+  if (plan === 'monthly' && isMonthlyActive()) {
+    const expiry = getMonthlyExpiry()!
+    const daysLeft = Math.ceil((expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    return (
+      <span className="text-xs bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full border border-blue-500/30 flex items-center gap-1">
+        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full inline-block" />
+        Pro Monthly — {daysLeft}d left
+      </span>
+    )
+  }
+  if (plan === 'starter') {
+    return (
+      <span className="text-xs bg-violet-500/20 text-violet-300 px-3 py-1 rounded-full border border-violet-500/30 flex items-center gap-1">
+        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full inline-block" />
+        Starter — {credits} credits left
+      </span>
+    )
+  }
+  const remaining = Math.max(0, FREE_LIMIT - usageCount)
+  return (
+    <span className="text-sm text-white/50">
+      {remaining} free generation{remaining !== 1 ? 's' : ''} left
+    </span>
+  )
+}
 
 export default function Home() {
   const [code, setCode] = useState('')
@@ -19,25 +103,27 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [usageCount, setUsageCount] = useState(0)
-  const [proUser, setProUser] = useState(false)
+  const [plan, setPlanState] = useState<Plan>('free')
+  const [credits, setCredits] = useState(0)
   const [copied, setCopied] = useState(false)
   const [showPaywall, setShowPaywall] = useState(false)
+  const [selectedTier, setSelectedTier] = useState<'starter' | 'monthly' | 'lifetime'>('lifetime')
 
   useEffect(() => {
     setUsageCount(getUsageCount())
-    setProUser(isPro())
+    setPlanState(getPlan())
+    setCredits(getCredits())
   }, [])
 
-  const remaining = Math.max(0, FREE_LIMIT - usageCount)
-  const canGenerate = proUser || remaining > 0
+  const userCanGenerate = canGenerate()
+  const isUnlimited = plan === 'lifetime' || (plan === 'monthly' && isMonthlyActive())
 
   async function handleGenerate() {
     if (!code.trim()) {
       setError('Please paste some code first.')
       return
     }
-
-    if (!canGenerate) {
+    if (!userCanGenerate) {
       setShowPaywall(true)
       return
     }
@@ -71,9 +157,10 @@ export default function Home() {
         setOutput(result)
       }
 
-      if (!proUser) {
+      if (!isUnlimited) {
         incrementUsage()
         setUsageCount(getUsageCount())
+        setCredits(getCredits())
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
@@ -82,9 +169,18 @@ export default function Home() {
     }
   }
 
-  function handlePaymentSuccess() {
-    setPro()
-    setProUser(true)
+  function handlePaymentSuccess(tier: 'starter' | 'monthly' | 'lifetime') {
+    if (tier === 'starter') {
+      setStarterPlan()
+      setCredits(getCredits())
+      setPlanState('starter')
+    } else if (tier === 'monthly') {
+      setMonthlyPlan()
+      setPlanState('monthly')
+    } else {
+      setLifetimePlan()
+      setPlanState('lifetime')
+    }
     setShowPaywall(false)
   }
 
@@ -104,6 +200,8 @@ export default function Home() {
     URL.revokeObjectURL(url)
   }
 
+  const activeTier = PRICING_TIERS.find((t) => t.key === selectedTier)!
+
   return (
     <PayPalScriptProvider options={{ clientId: process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID! }}>
       <div className="min-h-screen flex flex-col">
@@ -119,22 +217,13 @@ export default function Home() {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              {proUser ? (
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block" />
-                  Pro — Unlimited
-                </span>
-              ) : (
-                <span className="text-sm text-white/50">
-                  {remaining} free generation{remaining !== 1 ? 's' : ''} left
-                </span>
-              )}
-              {!proUser && (
+              <PlanBadge plan={plan} usageCount={usageCount} credits={credits} />
+              {!isUnlimited && (
                 <button
                   onClick={() => setShowPaywall(true)}
                   className="text-sm bg-gradient-to-r from-violet-500 to-cyan-500 hover:from-violet-400 hover:to-cyan-400 text-white font-medium px-4 py-1.5 rounded-lg transition-all"
                 >
-                  Unlock Pro — $49
+                  Upgrade
                 </button>
               )}
             </div>
@@ -195,9 +284,14 @@ export default function Home() {
               ) : (
                 <>
                   <span>Generate {DOC_TYPES.find((t) => t.value === docType)?.label}</span>
-                  {!proUser && remaining > 0 && (
+                  {plan === 'free' && Math.max(0, FREE_LIMIT - usageCount) > 0 && (
                     <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
-                      {remaining} left
+                      {Math.max(0, FREE_LIMIT - usageCount)} left
+                    </span>
+                  )}
+                  {plan === 'starter' && (
+                    <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
+                      {credits} credits
                     </span>
                   )}
                 </>
@@ -231,7 +325,7 @@ export default function Home() {
                     ) : (
                       <>
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                         Copy
                       </>
@@ -265,41 +359,68 @@ export default function Home() {
           </div>
         </main>
 
-        {/* Paywall modal */}
+        {/* Pricing modal */}
         {showPaywall && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-[#12121a] border border-white/10 rounded-2xl p-8 max-w-md w-full shadow-2xl">
-              <div className="text-center mb-6">
-                <div className="w-14 h-14 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-bold mb-2">You have used your 3 free generations</h2>
-                <p className="text-white/60">
-                  Unlock unlimited documentation generation forever for a one-time payment.
-                </p>
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-[#12121a] border border-white/10 rounded-2xl p-8 max-w-2xl w-full shadow-2xl my-4">
+              <div className="text-center mb-8">
+                <h2 className="text-2xl font-bold mb-2">Unlock DocGen AI</h2>
+                <p className="text-white/60">Choose a plan and start generating unlimited documentation.</p>
               </div>
 
-              <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6 space-y-2">
-                {[
-                  'Unlimited AI documentation',
-                  'JSDoc, TSDoc, README & API reference',
-                  'One-click copy & .md download',
-                  'Lifetime access — no subscription',
-                ].map((feat) => (
-                  <div key={feat} className="flex items-center gap-2 text-sm text-white/80">
-                    <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                    {feat}
-                  </div>
+              {/* Tier selector */}
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                {PRICING_TIERS.map((tier) => (
+                  <button
+                    key={tier.key}
+                    onClick={() => setSelectedTier(tier.key)}
+                    className={`relative rounded-xl p-4 text-left border transition-all ${
+                      selectedTier === tier.key
+                        ? tier.recommended
+                          ? 'border-violet-500 bg-violet-500/10'
+                          : 'border-white/30 bg-white/5'
+                        : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+                    }`}
+                  >
+                    {tier.recommended && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                        <span className="text-xs bg-gradient-to-r from-violet-500 to-cyan-500 text-white px-3 py-1 rounded-full font-semibold">
+                          {tier.badge}
+                        </span>
+                      </div>
+                    )}
+                    <div className="font-semibold text-sm mb-1">{tier.name}</div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-bold">{tier.price}</span>
+                      <span className="text-white/40 text-xs">{tier.period}</span>
+                    </div>
+                    <p className="text-white/50 text-xs mt-1 leading-snug">{tier.description}</p>
+                  </button>
                 ))}
               </div>
 
+              {/* Selected tier features */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
+                <p className="text-sm font-medium text-white/70 mb-3">{activeTier.name} includes:</p>
+                <div className="space-y-2">
+                  {activeTier.features.map((feat) => (
+                    <div key={feat} className="flex items-center gap-2 text-sm text-white/80">
+                      <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      {feat}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* PayPal button for selected tier */}
               <div className="mb-3">
-                <p className="text-center text-white/50 text-sm mb-3">$49 one-time — pay securely with PayPal</p>
+                <p className="text-center text-white/50 text-sm mb-3">
+                  Pay <strong className="text-white/80">{activeTier.price}</strong> {activeTier.period} — secure PayPal checkout
+                </p>
                 <PayPalButtons
+                  key={selectedTier}
                   style={{ layout: 'vertical', color: 'gold', shape: 'rect', label: 'pay' }}
                   createOrder={(_data, actions) => {
                     return actions.order.create({
@@ -308,16 +429,16 @@ export default function Home() {
                         {
                           amount: {
                             currency_code: 'USD',
-                            value: '49.00',
+                            value: activeTier.amount,
                           },
-                          description: 'DocGen AI — Lifetime Pro Access',
+                          description: `DocGen AI — ${activeTier.name} Plan`,
                         },
                       ],
                     })
                   }}
                   onApprove={(_data, actions) => {
                     return actions.order!.capture().then(() => {
-                      handlePaymentSuccess()
+                      handlePaymentSuccess(selectedTier)
                     })
                   }}
                   onError={() => {
