@@ -9,7 +9,9 @@ export async function POST(req: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
   const session = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
+    // automatic_payment_methods enables Apple Pay, Google Pay, Link, bank
+    // transfers, and any other methods enabled in the Stripe dashboard
+    automatic_payment_methods: { enabled: true },
     line_items: [
       {
         price: process.env.STRIPE_PRICE_ID,
