@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   getUsageCount,
   incrementUsage,
@@ -60,10 +60,6 @@ const PRICING_TIERS = [
     badge: null,
   },
 ]
-
-// Seed base for social proof counter (bootstrapped to look credible)
-const SOCIAL_PROOF_BASE = 2847
-const SOCIAL_PROOF_KEY = 'docgen_social_seed_ts'
 
 // Countdown timer: 48-hour urgency window stored per-visitor
 const COUNTDOWN_KEY = 'docgen_deal_expiry'
@@ -132,53 +128,6 @@ function CountdownTimer() {
   )
 }
 
-function SocialProofCounter() {
-  const [count, setCount] = useState(SOCIAL_PROOF_BASE)
-  const animatedRef = useRef(false)
-
-  useEffect(() => {
-    if (animatedRef.current) return
-    animatedRef.current = true
-
-    // Get or seed a live-ish offset so the number grows slightly each day
-    const stored = localStorage.getItem(SOCIAL_PROOF_KEY)
-    const seedTs = stored ? parseInt(stored, 10) : Date.now()
-    if (!stored) localStorage.setItem(SOCIAL_PROOF_KEY, String(seedTs))
-
-    const daysSinceSeed = Math.floor((Date.now() - seedTs) / (1000 * 60 * 60 * 24))
-    const target = SOCIAL_PROOF_BASE + daysSinceSeed * 23 + getUsageCount()
-
-    // Count-up animation
-    let start = SOCIAL_PROOF_BASE - 120
-    const step = Math.ceil((target - start) / 40)
-    const id = setInterval(() => {
-      start += step
-      if (start >= target) {
-        setCount(target)
-        clearInterval(id)
-      } else {
-        setCount(start)
-      }
-    }, 30)
-    return () => clearInterval(id)
-  }, [])
-
-  return (
-    <div className="flex items-center justify-center gap-6 text-sm text-white/40 py-2">
-      <div className="flex items-center gap-1.5">
-        <span className="text-violet-400 font-semibold text-base tabular-nums">
-          {count.toLocaleString()}
-        </span>
-        <span>docs generated</span>
-      </div>
-      <span className="w-1 h-1 rounded-full bg-white/20" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-emerald-400 font-semibold text-base">340+</span>
-        <span>developers using DocGen AI</span>
-      </div>
-    </div>
-  )
-}
 
 const DEMO_CODE = `import { useState, useCallback } from 'react'
 
@@ -392,7 +341,7 @@ export default function Home() {
           <p className="text-lg text-white/60 max-w-xl mx-auto mb-4">
             Paste any function, class, or API route. Get production-ready docs in seconds.
           </p>
-          <SocialProofCounter />
+          <p className="text-sm text-white/40 py-2">Powered by Claude AI · Free to try — no login required</p>
         </section>
 
         {/* Main */}
