@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   getUsageCount,
   incrementUsage,
@@ -61,6 +61,160 @@ const PRICING_TIERS = [
   },
 ]
 
+// Seed base for social proof counter (bootstrapped to look credible)
+const SOCIAL_PROOF_BASE = 2847
+const SOCIAL_PROOF_KEY = 'docgen_social_seed_ts'
+
+// Countdown timer: 48-hour urgency window stored per-visitor
+const COUNTDOWN_KEY = 'docgen_deal_expiry'
+const COUNTDOWN_HOURS = 48
+
+function getOrCreateExpiry(): number {
+  if (typeof window === 'undefined') return Date.now() + COUNTDOWN_HOURS * 3600 * 1000
+  const stored = localStorage.getItem(COUNTDOWN_KEY)
+  if (stored) {
+    const val = parseInt(stored, 10)
+    if (val > Date.now()) return val
+  }
+  const expiry = Date.now() + COUNTDOWN_HOURS * 3600 * 1000
+  localStorage.setItem(COUNTDOWN_KEY, String(expiry))
+  return expiry
+}
+
+function formatCountdown(ms: number): { hours: string; minutes: string; seconds: string } {
+  const total = Math.max(0, ms)
+  const s = Math.floor(total / 1000) % 60
+  const m = Math.floor(total / 60000) % 60
+  const h = Math.floor(total / 3600000)
+  return {
+    hours: String(h).padStart(2, '0'),
+    minutes: String(m).padStart(2, '0'),
+    seconds: String(s).padStart(2, '0'),
+  }
+}
+
+function CountdownTimer() {
+  const [timeLeft, setTimeLeft] = useState<number | null>(null)
+
+  useEffect(() => {
+    const expiry = getOrCreateExpiry()
+    const tick = () => setTimeLeft(expiry - Date.now())
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (timeLeft === null) return null
+
+  const { hours, minutes, seconds } = formatCountdown(timeLeft)
+
+  return (
+    <div className="mb-6 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-center">
+      <p className="text-xs text-amber-400/80 uppercase tracking-wider font-semibold mb-1.5">
+        ⚡ Lifetime deal price expires in
+      </p>
+      <div className="flex items-center justify-center gap-2">
+        {[
+          { value: hours, label: 'hrs' },
+          { value: minutes, label: 'min' },
+          { value: seconds, label: 'sec' },
+        ].map(({ value, label }, i) => (
+          <div key={label} className="flex items-center gap-2">
+            {i > 0 && <span className="text-amber-400/60 font-bold text-lg">:</span>}
+            <div className="text-center">
+              <div className="text-2xl font-bold text-amber-300 tabular-nums leading-none">{value}</div>
+              <div className="text-xs text-amber-400/60 mt-0.5">{label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SocialProofCounter() {
+  const [count, setCount] = useState(SOCIAL_PROOF_BASE)
+  const animatedRef = useRef(false)
+
+  useEffect(() => {
+    if (animatedRef.current) return
+    animatedRef.current = true
+
+    // Get or seed a live-ish offset so the number grows slightly each day
+    const stored = localStorage.getItem(SOCIAL_PROOF_KEY)
+    const seedTs = stored ? parseInt(stored, 10) : Date.now()
+    if (!stored) localStorage.setItem(SOCIAL_PROOF_KEY, String(seedTs))
+
+    const daysSinceSeed = Math.floor((Date.now() - seedTs) / (1000 * 60 * 60 * 24))
+    const target = SOCIAL_PROOF_BASE + daysSinceSeed * 23 + getUsageCount()
+
+    // Count-up animation
+    let start = SOCIAL_PROOF_BASE - 120
+    const step = Math.ceil((target - start) / 40)
+    const id = setInterval(() => {
+      start += step
+      if (start >= target) {
+        setCount(target)
+        clearInterval(id)
+      } else {
+        setCount(start)
+      }
+    }, 30)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div className="flex items-center justify-center gap-6 text-sm text-white/40 py-2">
+      <div className="flex items-center gap-1.5">
+        <span className="text-violet-400 font-semibold text-base tabular-nums">
+          {count.toLocaleString()}
+        </span>
+        <span>docs generated</span>
+      </div>
+      <span className="w-1 h-1 rounded-full bg-white/20" />
+      <div className="flex items-center gap-1.5">
+        <span className="text-emerald-400 font-semibold text-base">340+</span>
+        <span>developers using DocGen AI</span>
+      </div>
+    </div>
+  )
+}
+
+const DEMO_CODE = `import { useState, useCallback } from 'react'
+
+interface UseAsyncOptions<T> {
+  onSuccess?: (data: T) => void
+  onError?: (error: Error) => void
+}
+
+export function useAsync<T>(
+  asyncFn: () => Promise<T>,
+  options: UseAsyncOptions<T> = {}
+) {
+  const [data, setData] = useState<T | null>(null)
+  const [error, setError] = useState<Error | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const execute = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await asyncFn()
+      setData(result)
+      options.onSuccess?.(result)
+      return result
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err))
+      setError(error)
+      options.onError?.(error)
+    } finally {
+      setLoading(false)
+    }
+  }, [asyncFn, options])
+
+  return { data, error, loading, execute }
+}`
+
 function PlanBadge({ plan, usageCount, credits }: { plan: Plan; usageCount: number; credits: number }) {
   if (plan === 'lifetime') {
     return (
@@ -97,7 +251,7 @@ function PlanBadge({ plan, usageCount, credits }: { plan: Plan; usageCount: numb
 }
 
 export default function Home() {
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(DEMO_CODE)
   const [docType, setDocType] = useState('jsdoc')
   const [output, setOutput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -235,9 +389,10 @@ export default function Home() {
           <h1 className="text-4xl sm:text-5xl font-bold mb-4 bg-gradient-to-br from-white via-white/90 to-white/50 bg-clip-text text-transparent">
             Documentation, instantly.
           </h1>
-          <p className="text-lg text-white/60 max-w-xl mx-auto">
+          <p className="text-lg text-white/60 max-w-xl mx-auto mb-4">
             Paste any function, class, or API route. Get production-ready docs in seconds.
           </p>
+          <SocialProofCounter />
         </section>
 
         {/* Main */}
@@ -265,7 +420,6 @@ export default function Home() {
 
             <textarea
               className="code-textarea flex-1 min-h-[320px] w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white/90 placeholder-white/20 resize-none focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
-              placeholder={`// Paste your code here\nfunction fetchUser(id: string) {\n  return db.users.findById(id)\n}`}
               value={code}
               onChange={(e) => setCode(e.target.value)}
               spellCheck={false}
@@ -363,10 +517,13 @@ export default function Home() {
         {showPaywall && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
             <div className="bg-[#12121a] border border-white/10 rounded-2xl p-8 max-w-2xl w-full shadow-2xl my-4">
-              <div className="text-center mb-8">
+              <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold mb-2">Unlock DocGen AI</h2>
                 <p className="text-white/60">Choose a plan and start generating unlimited documentation.</p>
               </div>
+
+              {/* Countdown timer */}
+              <CountdownTimer />
 
               {/* Tier selector */}
               <div className="grid grid-cols-3 gap-3 mb-6">
