@@ -1,8 +1,8 @@
 name: Social Post Scheduler
 
 on:
-  # schedule:
-  #   - cron: '3 4 * * *'   # 08:03 GST (UTC+4) daily — disabled, manual posting mode
+  schedule:
+    - cron: '3 4 * * *'   # 08:03 GST (UTC+4) daily
   workflow_dispatch:       # allow manual runs
 
 env:
