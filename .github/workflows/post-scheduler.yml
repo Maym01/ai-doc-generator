@@ -1,0 +1,27 @@
+name: Social Post Scheduler
+
+on:
+  schedule:
+    - cron: '3 4 * * *'   # 08:03 GST (UTC+4) daily
+  workflow_dispatch:       # allow manual runs
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run social post scheduler
+        env:
+          TWITTER_API_KEY: ${{ secrets.X_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.X_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: python -m social.cli run-once
