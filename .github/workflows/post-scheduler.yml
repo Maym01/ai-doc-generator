@@ -16,6 +16,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Load content queue
+        run: python3 -m social.cli load
+
       - name: Run social post scheduler
         env:
           TWITTER_API_KEY: ${{ secrets.X_API_KEY }}
