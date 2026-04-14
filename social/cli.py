@@ -10,6 +10,7 @@ Usage:
 """
 import argparse
 import json
+import sys
 
 from .queue import load_from_file, list_posts, get_due_posts, CONTENT_FILE
 from .runner import SocialRunner
@@ -31,7 +32,9 @@ def cmd_preview(args):
 
 
 def cmd_run_once(args):
-    SocialRunner().run_once()
+    failures = SocialRunner().run_once()
+    if failures:
+        sys.exit(1)
 
 
 def cmd_run_loop(args):
