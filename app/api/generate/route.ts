@@ -3,6 +3,22 @@ import { NextRequest } from 'next/server'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+// In-memory rate limiter: 5 requests per IP per 24 hours
+// Resets on cold start — still blocks casual abuse and direct API callers
+const RATE_LIMIT = 5
+const WINDOW_MS = 24 * 60 * 60 * 1000
+const ipTimestamps = new Map<string, number[]>()
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now()
+  const cutoff = now - WINDOW_MS
+  const timestamps = (ipTimestamps.get(ip) ?? []).filter(t => t > cutoff)
+  if (timestamps.length >= RATE_LIMIT) return true
+  timestamps.push(now)
+  ipTimestamps.set(ip, timestamps)
+  return false
+}
+
 const SYSTEM_PROMPTS: Record<string, string> = {
   jsdoc: `You are an expert technical writer. Given code, generate complete JSDoc comments.
 Output ONLY the JSDoc comment block(s) — no explanation, no markdown fences, no extra text.
@@ -22,6 +38,18 @@ Output ONLY the markdown documentation — no explanation or preamble.`,
 }
 
 export async function POST(req: NextRequest) {
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
+    req.headers.get('x-real-ip') ??
+    'unknown'
+
+  if (isRateLimited(ip)) {
+    return new Response(
+      JSON.stringify({ error: 'Free limit reached. Please upgrade to continue.' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
   const { code, docType } = await req.json()
 
   if (!code || typeof code !== 'string' || code.trim().length === 0) {
