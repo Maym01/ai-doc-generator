@@ -5,6 +5,9 @@ on:
     - cron: '3 4 * * *'   # 08:03 GST (UTC+4) daily
   workflow_dispatch:       # allow manual runs
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   post:
     runs-on: ubuntu-latest
