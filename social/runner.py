@@ -35,8 +35,20 @@ def _alert(message: str):
 
 class SocialRunner:
     def __init__(self):
-        self.twitter = TwitterPoster()
-        self.linkedin = LinkedInPoster()
+        self._twitter: Optional[TwitterPoster] = None
+        self._linkedin: Optional[LinkedInPoster] = None
+
+    @property
+    def twitter(self) -> TwitterPoster:
+        if self._twitter is None:
+            self._twitter = TwitterPoster()
+        return self._twitter
+
+    @property
+    def linkedin(self) -> LinkedInPoster:
+        if self._linkedin is None:
+            self._linkedin = LinkedInPoster()
+        return self._linkedin
 
     def _post(self, post: dict):
         platform = post["platform"]
