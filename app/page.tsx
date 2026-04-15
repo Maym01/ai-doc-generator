@@ -16,7 +16,7 @@ import {
 } from '@/lib/usage'
 import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js'
 
-const FREE_LIMIT = 3
+const FREE_LIMIT = 0
 
 const DOC_TYPES = [
   { value: 'jsdoc', label: 'JSDoc' },
