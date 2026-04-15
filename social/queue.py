@@ -6,7 +6,7 @@ import json
 import sqlite3
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "queue.db")
@@ -92,20 +92,32 @@ def load_from_file(content_file: str = CONTENT_FILE):
     return loaded, skipped
 
 
-def get_due_posts(platform: Optional[str] = None) -> list:
-    """Return pending posts whose scheduled_at <= now."""
+def get_due_posts(platform: Optional[str] = None, max_age_hours: int = 12) -> list:
+    """Return pending posts whose scheduled_at is within [now-max_age_hours, now].
+
+    The max_age_hours window prevents already-posted content from being
+    re-attempted when the queue DB is restored fresh (no prior artifact).
+    Default 12 h gives plenty of margin for late cron fires while excluding
+    posts from previous days.
+    """
     init_db()
-    now = datetime.utcnow().isoformat()
+    now = datetime.utcnow()
+    now_str = now.isoformat()
+    cutoff_str = (now - timedelta(hours=max_age_hours)).isoformat()
     with get_conn() as conn:
         if platform:
             rows = conn.execute(
-                "SELECT * FROM posts WHERE status='pending' AND scheduled_at <= ? AND platform=? ORDER BY scheduled_at",
-                (now, platform),
+                "SELECT * FROM posts WHERE status='pending'"
+                " AND scheduled_at <= ? AND scheduled_at >= ? AND platform=?"
+                " ORDER BY scheduled_at",
+                (now_str, cutoff_str, platform),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM posts WHERE status='pending' AND scheduled_at <= ? ORDER BY scheduled_at",
-                (now,),
+                "SELECT * FROM posts WHERE status='pending'"
+                " AND scheduled_at <= ? AND scheduled_at >= ?"
+                " ORDER BY scheduled_at",
+                (now_str, cutoff_str),
             ).fetchall()
     return [dict(r) for r in rows]
 
